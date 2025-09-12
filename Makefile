@@ -1,9 +1,22 @@
 
-LIBS=`pkgconf --libs ncurses` -lm
+LOGFILE_NAME="fractal.log"
+LIBS:=`pkgconf --libs ncurses` -lm
+SRCS:=main.c fractal.c
+OBJS:=main.o fractal.o
+EXEC:=fractal-tui
+CFLAGS:= -DLOGFILE_NAME="$(LOGFILE_NAME)" -O2
+all: $(EXEC)
 
-fractal: fractal.c
-	$(CC) -O2 -o fractal fractal.c $(LIBS)
+$(OBJS): $(SRCS)
+	for i in $(SRCS);do $(CC) -c $(CFLAGS) $$i $(LIBS);done
 
+$(EXEC): $(OBJS)
+	$(CC) $(CFLAGS) -o $(EXEC) $(OBJS) $(LIBS)
+
+clean:
+	rm -f $(LOGFILE_NAME) $(OBJS) $(EXEC)
+
+.PHONY: all clean
 
 #test: test.c
 # $(CC) -O2 -o test test.c $(LIBS)

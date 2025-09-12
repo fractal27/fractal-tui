@@ -1,77 +1,41 @@
 #include <ncurses.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdio.h>
 #include <assert.h>
 #include <math.h>
+#include "fractal.h"
+#include "config.h"
 
 // DEPRECATED; NOW USE dynamic size
 // #define MAX_VALUE   65
-
-
-#define calculate_re(state,x) (state.rMin + (x - 1) * (state.rMax - state.rMin) / (state.width - 2))
-#define calculate_im(state,y) (state.iMin + (y - 1) * (state.iMax - state.iMin) / (state.height - 2))
-#define SPEED 0.1
-
-// var definition
-//
-
-struct sstate {
-		int height;
-		int width;
-		double rMax ;//= .2;
-		double rMin ;//= -1;
-		double iMax ;//= 2.;
-		double iMin ;//= -2.;
-		bool dragging;
-		struct complex_s{
-				double r;
-				double i;
-		} dragging_start, dragging_end;
-		double zoom;
-		FILE* log;
-} state = {0,0,
-		.rMax = .2,
-		.rMin = -1.,
-		.iMax = 2.,
-		.iMin = -2.,
-		.zoom = 1.0,
-		false,
-};
-
-int init();
-int mainloop();
-int main();
-int finish();
 
 
 
 const char charset[] = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/*tfjrxnuvczYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
 const size_t charset_len = sizeof(charset)-2;
 
-const char* help_message[] = {
-		"         HELP(you've asked for it)",
-		"[j] To decrease .1 from the minimum imaginary value",
-		"[J] To add .1 from the minimum imaginary value",
-		"[k] To decrease .1 from the maximum imaginary value",
-		"[K] To add .1 from the maximum imaginary value",
-		"[h] To decrease .1 from the minimum real value",
-		"[h] To add .1 from the minimum real value",
-		"[l] To decrease .1 from the maximum real value",
-		"[L] To add .1 from the maximum real value",
-		"[+] To zoom in",
-		"[-] To zoom out",
-		"[.] To reset the zoom",
-		"[RIGHT MOUSE DRAG] To zoom in dynamically",
-		"[LEFT CLICK] To center the screen to the point clicked.",
-		"[?] Show this page",
-};
+const char* help_message_header = "HELP(you've asked for it)";
+
+
+
 size_t maxlen;
 size_t help_message_nlines;
 
 
 int 
-init()
+init(struct sstate* pstate)
 {
+		struct sstate state = {0,0,
+				.rMax = START_RMAX,
+				.rMin = START_RMIN,
+				.iMax = START_IMAX,
+				.iMin = START_IMIN,
+				.zoom = 1.0,
+				false,
+		};
+		*pstate = state;
+
 		FILE* fp = fopen("fractal.log","w");
 
 		initscr();
@@ -83,29 +47,44 @@ init()
 		//mouseinterval(0);  // Respond to mouse quickly
 		keypad(stdscr, TRUE);
 		printf("\033[?1003h\n"); // Enable mouse move events (drag)
-		size_t i = sizeof(help_message)/sizeof(const char*);
+		size_t i = sizeof(keybinds)/sizeof(struct keybind);
 		size_t str_len;
-		help_message_nlines = sizeof(help_message)/sizeof(const char*);
-		assert(i > 0 && "help message not present");
+		help_message_nlines = i;
+		assert(i > 0 && "help messages/ not present");
 		while(i--){
-				if((str_len = strlen(help_message[i])) > maxlen) 
+				if((str_len = strlen(keybinds[i].help_msg)) > maxlen) 
 						maxlen = str_len;
 		}
 		maxlen+=2;
-		state.log = fp ? fp : stderr;
+		pstate->log = fp ? fp : stderr;
 
 		return 0;
 }
 
 
+bool isrightdrag(struct sstate state, int key)
+{
+		return state.dragging;
+}
+
+bool isleftclick(struct sstate state, int key)
+{
+		MEVENT event;
+		if (getmouse(&event) == OK) {
+				if(event.bstate & BUTTON1_CLICKED){
+						return true;
+				}
+		}
+		return false;
+}
 
 void
 zoom(struct sstate* curr_state, double x){
 		struct complex_s midpoint;
 		if(x == 0)
 				return;
-		midpoint.r = (state.rMax+state.rMin)/2;
-		midpoint.i = (state.iMax+state.iMin)/2;
+		midpoint.r = (curr_state->rMax+curr_state->rMin)/2;
+		midpoint.i = (curr_state->iMax+curr_state->iMin)/2;
 		curr_state->rMax = midpoint.r + fabs(midpoint.r-curr_state->rMax)*x;
 		curr_state->iMax = midpoint.i + fabs(midpoint.i-curr_state->iMax)*x;
 		curr_state->rMin = midpoint.r - fabs(midpoint.r-curr_state->rMin)*x;
@@ -114,7 +93,6 @@ zoom(struct sstate* curr_state, double x){
 }
 
 
-inline
 void
 resetzoom(struct sstate* curr_state){
 		zoom(curr_state, curr_state->zoom);
@@ -198,11 +176,12 @@ get_usable_char(uint16_t x){
 		return charset[x];
 }
 
+/* // UNUSED
 double
-get_scale(int maxx, int maxy)
+get_scale(struct sstate state, int maxx, int maxy)
 {
 		return maxx/(state.rMax-state.rMin) < maxy/(state.iMax-state.iMin) ? maxx/(state.rMax-state.rMin): maxy/(state.iMax-state.iMin);
-}
+}*/
 
 double
 mantelbrot(double r, double i){
@@ -222,7 +201,7 @@ mantelbrot(double r, double i){
 }
 
 int 
-mainloop()
+mainloop(struct sstate* pstate)
 {
 		bool running = true;
 		
@@ -236,17 +215,17 @@ mainloop()
 		clear();
 		box(stdscr,0,0);
 		while(running){
-				getmaxyx(stdscr,state.height,state.width);
-				if(prevwidth != state.width || prevheight != prevheight)
+				getmaxyx(stdscr,pstate->height,pstate->width);
+				if(prevwidth != pstate->width || prevheight != prevheight)
 						box(stdscr,0,0);
-				prevwidth = state.width;
-				prevheight = state.height;
-				mvprintw(0,1,"%04dx%04d",state.width,state.height);
+				prevwidth = pstate->width;
+				prevheight = pstate->height;
+				mvprintw(0,1,"%04dx%04d",pstate->width,pstate->height);
 				mvprintw(0,4+strlen("0000x0000"),"? for help");
-				for(x=1;x<state.width-1;x++){
-						for(y=1;y<state.height-1;y++){
-								real = calculate_re(state,x);
-								imag = calculate_im(state,y);
+				for(x=1;x<pstate->width-1;x++){
+						for(y=1;y<pstate->height-1;y++){
+								real = calculate_re((*pstate),x);
+								imag = calculate_im((*pstate),y);
 
 								c = get_usable_char((int)(mantelbrot(real, imag)*(charset_len+1)));
 								mvprintw(y,x,"%c",c);
@@ -256,67 +235,69 @@ mainloop()
 
 				if((ch = getch())){
 						if(ch == KEY_MOUSE)
-								processmouse(&state);
-						if(!state.dragging)
+								processmouse(pstate);
+						if(!pstate->dragging)
 						switch(ch){
 								case KEY_UP:
-										state.iMin-=(state.iMax-state.iMin)*SPEED;
-										state.iMax-=(state.iMax-state.iMin)*SPEED;
+										pstate->iMin-=(pstate->iMax-pstate->iMin)*SPEED;
+										pstate->iMax-=(pstate->iMax-pstate->iMin)*SPEED;
 										break;
 								case KEY_DOWN:
-										state.iMin+=(state.iMax-state.iMin)*SPEED;
-										state.iMax+=(state.iMax-state.iMin)*SPEED;
+										pstate->iMin+=(pstate->iMax-pstate->iMin)*SPEED;
+										pstate->iMax+=(pstate->iMax-pstate->iMin)*SPEED;
 										break;
 								case KEY_LEFT:
-										state.rMin-=(state.rMax-state.rMin)*SPEED;
-										state.rMax-=(state.rMax-state.rMin)*SPEED;
+										pstate->rMin-=(pstate->rMax-pstate->rMin)*SPEED;
+										pstate->rMax-=(pstate->rMax-pstate->rMin)*SPEED;
 										break;
 								case KEY_RIGHT:
-										state.rMin+=(state.rMax-state.rMin)*SPEED;
-										state.rMax+=(state.rMax-state.rMin)*SPEED;
+										pstate->rMin+=(pstate->rMax-pstate->rMin)*SPEED;
+										pstate->rMax+=(pstate->rMax-pstate->rMin)*SPEED;
 										break;
 								case 'h':
-										state.rMin-=SPEED;
+										pstate->rMin-=SPEED;
 										break;
 								case 'H':
-										state.rMin+=SPEED;
+										pstate->rMin+=SPEED;
 										break;
 								case 'j':
-										state.iMax+=SPEED;
+										pstate->iMax+=SPEED;
 										break;
 								case 'J':
-										state.iMax-=SPEED;
+										pstate->iMax-=SPEED;
 										break;
 								case 'k':
-										state.iMin-=SPEED;
+										pstate->iMin-=SPEED;
 										break;
 								case 'K':
-										state.iMin+=SPEED;
+										pstate->iMin+=SPEED;
 										break;
 								case 'l':
-										state.rMax+=SPEED;
+										pstate->rMax+=SPEED;
 										break;
 								case 'L':
-										state.rMax-=SPEED;
+										pstate->rMax-=SPEED;
 										break;
 								case '+':
-										zoom(&state,.8);
+										zoom(pstate,.8);
 										break;
 								case '-':
-										zoom(&state,1.2);
+										zoom(pstate,1.2);
 										break;
 								case '.':
-										resetzoom(&state);
+										resetzoom(pstate);
 										break;
 								case '?':
 										refresh(); // to prevent buffer errors *** NOTE: DO NOT REMOVE ***
-										helpwin = newwin(help_message_nlines+2,maxlen+2,(state.height-help_message_nlines)/2+2,(state.width-maxlen)/2+2);
+										helpwin = newwin(help_message_nlines+2,maxlen+2,(pstate->height-help_message_nlines)/2+2,(pstate->width-maxlen)/2+2);
 										// helpwin = createwindow();
 
 
 										box(helpwin,0,0);
+										mvwprintw(helpwin,0,(pstate->width-strlen(help_message_header))/2,"%s", help_message_header);
 										for(int i = 0; i < help_message_nlines; i++){ 
-												mvwprintw(helpwin,i+1,3,"%s", help_message[i]);
+												if(keybinds[i].help_msg != NULL) // this means it's not meant to be displayed
+														mvwprintw(helpwin,i+1,3,keybinds[i].help_msg, keybinds[i].key);
 										}
 										wrefresh(helpwin);
 
@@ -340,27 +321,20 @@ mainloop()
 }
 
 int 
-finish()
+finish(struct sstate* pstate)
 {
 
 		printf("\033[?1003l\n");
+
+		if(pstate->log != stderr && pstate->log != stdout && pstate->log != NULL){
+				fclose(pstate->log);
+		}
+
 		endwin();
 		return 0;
 }
 
 
-int 
-main()
-{
-		int ret;
 
-		if((ret = init()))
-				return ret;
-
-		if((ret = mainloop()))
-				return ret;
-
-		return finish();
-}
 
 
