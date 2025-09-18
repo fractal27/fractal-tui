@@ -47,56 +47,68 @@ struct sstate {
 		FILE* log;
 };
 
-enum Keybind {
-		StretchUP,
-		StretchDOWN,
-		StretchLEFT,
-		StretchRIGHT,
-		CompressUP,
-		CompressDOWN,
-		CompressLEFT,
-		CompressRIGHT,
-		MoveUP,
-		MoveDOWN,
-		MoveLEFT,
-		MoveRIGHT,
-		GotoXY,
-		LimitsTo,
-		ZoomIn,
-		ZoomOut,
-		ResetZoom,
-		ProcessMouse
-};
-
 struct keybind {
 		int key;
-		enum Keybind action;
-		bool (*when)(struct sstate state, int key); // CAN BE NULL(it means that it will be all the time)
+		void (*action)(struct sstate* pstate);
+		bool while_dragging;
+		bool (*when)(struct sstate state); // CAN BE NULL(it means that it will be all the time)
 		const char* help_msg;
 };
 
 
 
+/* Keybind Actions */
+
+extern void StretchUP(struct sstate* pstate);
+extern void StretchDOWN(struct sstate* pstate);
+extern void StretchLEFT(struct sstate* pstate);
+extern void StretchRIGHT(struct sstate* pstate);
+extern void CompressUP(struct sstate* pstate);
+extern void CompressDOWN(struct sstate* pstate);
+extern void CompressLEFT(struct sstate* pstate);
+extern void CompressRIGHT(struct sstate* pstate);
+extern void MoveUP(struct sstate* pstate);
+extern void MoveDOWN(struct sstate* pstate);
+extern void MoveLEFT(struct sstate* pstate);
+extern void MoveRIGHT(struct sstate* pstate);
+extern void GotoXY(struct sstate* pstate);
+extern void LimitsTo(struct sstate* pstate);
+extern void ZoomIn(struct sstate* pstate);
+extern void ZoomOut(struct sstate* pstate);
+extern void ResetZoom(struct sstate* pstate);
+extern void ProcessMouse(struct sstate* pstate);
+extern void ShowHelp(struct sstate* pstate);
+extern void Clear(struct sstate* pstate);
+extern void Finish(struct sstate* pstate);
 
 
+
+
+
+
+/* Functions relative to the program */
 
 extern int init(struct sstate* pstate);
 extern int mainloop(struct sstate* pstate);
 extern int main(int argc, char** argv);
 extern int finish(struct sstate* pstate);
-extern bool isrightdrag(struct sstate state, int key);
-extern bool isleftclick(struct sstate state, int key); 
+extern bool isrightdrag(struct sstate state);
+extern bool isleftclick(struct sstate state); 
+extern void zoom(struct sstate* pstate, double x); 
 
 
+/* global constants */
+
+// relative to charset used to display ascii
 extern const char charset[];
 extern const size_t charset_len;
 
-
+// relative to helpmsgs/keybinds
 extern const char* help_message_header;
-extern struct keybind keybinds[];
-extern size_t maxlen;
-extern size_t help_message_nlines;
-
+extern struct keybind keybinds_s[];
+extern struct keybind* keybinds;
+extern size_t keybinds_n;
+extern size_t maxlen; // the only non-constant that has to be calculated in a function
 
 
 

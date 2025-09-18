@@ -4,28 +4,145 @@
 #include <stdio.h>
 #include <assert.h>
 #include <math.h>
+#include <time.h>
 #include "fractal.h"
+#include "keybindingsreader/keybindingsreader.h"
 #include "config.h"
+#include <stdlib.h>
 
 // DEPRECATED; NOW USE dynamic size
 // #define MAX_VALUE   65
-
+#define LOG(fp, s, ...)     fprintf(fp, "%.4lf: " s "\n", 1000*(double)clock()/CLOCKS_PER_SEC, __VA_ARGS__)
 
 
 const char charset[] = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/*tfjrxnuvczYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
 const size_t charset_len = sizeof(charset)-2;
 
 const char* help_message_header = "HELP(you've asked for it)";
+const char* configfile = "/home/anon/.config/fractal-tui/keybinds.conf";
+bool using_configfile = false;
 
+struct KeybindingsReader kbreader;
+
+void* keybinds_values_assoc[] = {
+		CompressDOWN,
+		StretchDOWN,
+		CompressUP,
+		StretchUP,
+		CompressRIGHT,
+		StretchRIGHT,
+		CompressLEFT,
+		StretchLEFT,
+		ZoomIn,
+		ZoomOut,
+		ResetZoom,
+		ProcessMouse,
+		ShowHelp,	
+		Finish,
+		MoveLEFT,
+		MoveUP,
+		MoveDOWN,
+		MoveRIGHT,
+		NULL
+};
+
+const char* keybinds_values_acc[] = {
+		"CompressDOWN",
+		"StretchDOWN",
+		"CompressUP",
+		"StretchUP",
+		"CompressRIGHT",
+		"StretchRIGHT",
+		"CompressLEFT",
+		"StretchLEFT",
+		"ZoomIn",
+		"ZoomOut",
+		"ResetZoom",
+		"ProcessMouse",
+		"ShowHelp",	
+		"Finish",
+		"NULL"
+};
+
+const char* keybinds_whens_acc[] = {
+		"NULL"
+};
+
+void* keybinds_whens_assoc[] = {
+		NULL
+};
 
 
 size_t maxlen;
-size_t help_message_nlines;
+size_t bindings_n = sizeof(keybinds_s)/sizeof(struct keybind);
+/* Binding Actions */
+
+void StretchUP(struct sstate* pstate)  		{	pstate->iMax-=SPEED; }
+void StretchDOWN(struct sstate* pstate)		{	pstate->iMin+=SPEED; }
+void StretchLEFT(struct sstate* pstate)		{	pstate->rMax-=SPEED; }
+void StretchRIGHT(struct sstate* pstate)	{	pstate->rMin+=SPEED; }
+
+void CompressUP(struct sstate* pstate)  	{	pstate->iMax+=SPEED; }
+void CompressDOWN(struct sstate* pstate)	{	pstate->iMin-=SPEED; }
+void CompressLEFT(struct sstate* pstate)	{	pstate->rMax+=SPEED; }
+void CompressRIGHT(struct sstate* pstate)	{	pstate->rMin-=SPEED; }
+
+void ZoomIn(struct sstate* pstate){			zoom(pstate, .8);}
+void ZoomOut(struct sstate* pstate){		zoom(pstate, 1.2);}
+void ResetZoom(struct sstate* pstate){		zoom(pstate, pstate->zoom);}
+void Clear(struct sstate* pstate){			clear(); }
+void Finish(struct sstate* pstate){			exit(finish(pstate)); }
+
+void MoveUP(struct sstate* pstate){
+		pstate->iMin-=(pstate->iMax-pstate->iMin)*SPEED;
+		pstate->iMax-=(pstate->iMax-pstate->iMin)*SPEED;
+}
+void MoveDOWN(struct sstate* pstate){
+		pstate->iMin+=(pstate->iMax-pstate->iMin)*SPEED;
+		pstate->iMax+=(pstate->iMax-pstate->iMin)*SPEED;
+}
+
+void MoveLEFT(struct sstate* pstate) {
+		pstate->rMin-=(pstate->rMax-pstate->rMin)*SPEED;
+		pstate->rMax-=(pstate->rMax-pstate->rMin)*SPEED;
+}
+
+void MoveRIGHT(struct sstate* pstate) {
+		pstate->rMin+=(pstate->rMax-pstate->rMin)*SPEED;
+		pstate->rMax+=(pstate->rMax-pstate->rMin)*SPEED;
+}
+
+void ShowHelp(struct sstate* pstate){
+		WINDOW* helpwin;
+		refresh(); // to prevent buffer errors *** NOTE: DO NOT REMOVE ***
+		size_t tot_nulls = 0;
+		for(int i = 0; i < bindings_n; i++) if(!keybinds[i].help_msg) tot_nulls++;
+
+		helpwin = newwin(bindings_n+2-tot_nulls,
+						maxlen+2,
+						(pstate->height-bindings_n)/2+2,
+						(pstate->width-maxlen)/2+2);
 
 
+		box(helpwin,0,0);
+		mvwprintw(helpwin,0,(maxlen-strlen(help_message_header))/2,"%s", help_message_header);
+		size_t curr_nulls = 0;
+		for(int i = 0; i < bindings_n; i++){ 
+				if(keybinds[i].help_msg != NULL){ // it's meant to be displayed
+						mvwprintw(helpwin,i+1-curr_nulls,3,keybinds[i].help_msg, keybinds[i].key);
+				} else curr_nulls++;
+		}
+		wrefresh(helpwin);
+
+		getch();
+
+		delwin(helpwin);
+}
+/* Actual program functions */
 int 
 init(struct sstate* pstate)
 {
+		assert(pstate && "pstate cannot be null!");
 		struct sstate state = {0,0,
 				.rMax = START_RMAX,
 				.rMin = START_RMIN,
@@ -36,8 +153,43 @@ init(struct sstate* pstate)
 		};
 		*pstate = state;
 
-		FILE* fp = fopen("fractal.log","w");
+		FILE* fp_log = fopen("fractal.log","w");
+		FILE* fp_keybinds;
+		bool keybind_done;
 
+		if((fp_keybinds = fopen(configfile,"r")))
+		{
+				LOG(fp_log,"using keybinds from file `%s`", configfile);
+				fclose(fp_keybinds); // this was just to check if the file exists.
+				using_configfile = true;
+				keybind_done = false;
+
+				keybindsreader_init(&kbreader,configfile);
+				keybindsreader_parse(&kbreader, keybinds_values_acc, keybinds_values_assoc,
+												keybinds_whens_acc,   keybinds_whens_assoc);
+				for(int i=0; i < kbreader.ndest;i++){
+						for(int j=0; j < bindings_n; j++){
+								if(keybinds[j].key == kbreader.dest[i].key){
+										keybinds[j].action = kbreader.dest[i].value;
+										keybinds[j].help_msg = kbreader.dest[i].helpmsg;
+										keybinds[j].when = kbreader.dest[i].when;
+										keybind_done = true;
+										LOG(fp_log,"substituted keybind in character `%c`", keybinds[j].key);
+										break;
+								}
+						}
+						if(!keybind_done){
+								keybinds = realloc(keybinds,sizeof(keybinds)+sizeof(struct keybind));
+								assert(keybinds != NULL && "malloc failed");
+								keybinds[bindings_n].action = kbreader.dest[i].value;
+								keybinds[bindings_n].help_msg = kbreader.dest[i].helpmsg;
+								keybinds[bindings_n].when = kbreader.dest[i].when;
+								bindings_n++;
+						}
+				}
+		}
+
+		LOG(fp_log, "file opened", NULL);
 		initscr();
 		curs_set(0);
 		cbreak();
@@ -47,27 +199,26 @@ init(struct sstate* pstate)
 		//mouseinterval(0);  // Respond to mouse quickly
 		keypad(stdscr, TRUE);
 		printf("\033[?1003h\n"); // Enable mouse move events (drag)
-		size_t i = sizeof(keybinds)/sizeof(struct keybind);
+		size_t i = bindings_n;
 		size_t str_len;
-		help_message_nlines = i;
-		assert(i > 0 && "help messages/ not present");
+		// assert(i > 0 && "help messages/ not present");
 		while(i--){
-				if((str_len = strlen(keybinds[i].help_msg)) > maxlen) 
+				if(keybinds[i].help_msg && (str_len = strlen(keybinds[i].help_msg)) > maxlen) 
 						maxlen = str_len;
 		}
 		maxlen+=2;
-		pstate->log = fp ? fp : stderr;
-
+		pstate->log = fp_log ? fp_log : stderr;
+		LOG(fp_log, "initialization complete", NULL);
 		return 0;
 }
 
 
-bool isrightdrag(struct sstate state, int key)
+bool isrightdrag(struct sstate state)
 {
 		return state.dragging;
 }
 
-bool isleftclick(struct sstate state, int key)
+bool isleftclick(struct sstate state)
 {
 		MEVENT event;
 		if (getmouse(&event) == OK) {
@@ -99,7 +250,7 @@ resetzoom(struct sstate* curr_state){
 }
 
 void
-processmouse(struct sstate* curr_state)
+ProcessMouse(struct sstate* curr_state)
 {
 		MEVENT event;
 		struct complex_s z, midpoint, zdiff, max_z, min_z;
@@ -234,85 +385,14 @@ mainloop(struct sstate* pstate)
 				refresh();
 
 				if((ch = getch())){
-						if(ch == KEY_MOUSE)
-								processmouse(pstate);
-						if(!pstate->dragging)
-						switch(ch){
-								case KEY_UP:
-										pstate->iMin-=(pstate->iMax-pstate->iMin)*SPEED;
-										pstate->iMax-=(pstate->iMax-pstate->iMin)*SPEED;
-										break;
-								case KEY_DOWN:
-										pstate->iMin+=(pstate->iMax-pstate->iMin)*SPEED;
-										pstate->iMax+=(pstate->iMax-pstate->iMin)*SPEED;
-										break;
-								case KEY_LEFT:
-										pstate->rMin-=(pstate->rMax-pstate->rMin)*SPEED;
-										pstate->rMax-=(pstate->rMax-pstate->rMin)*SPEED;
-										break;
-								case KEY_RIGHT:
-										pstate->rMin+=(pstate->rMax-pstate->rMin)*SPEED;
-										pstate->rMax+=(pstate->rMax-pstate->rMin)*SPEED;
-										break;
-								case 'h':
-										pstate->rMin-=SPEED;
-										break;
-								case 'H':
-										pstate->rMin+=SPEED;
-										break;
-								case 'j':
-										pstate->iMax+=SPEED;
-										break;
-								case 'J':
-										pstate->iMax-=SPEED;
-										break;
-								case 'k':
-										pstate->iMin-=SPEED;
-										break;
-								case 'K':
-										pstate->iMin+=SPEED;
-										break;
-								case 'l':
-										pstate->rMax+=SPEED;
-										break;
-								case 'L':
-										pstate->rMax-=SPEED;
-										break;
-								case '+':
-										zoom(pstate,.8);
-										break;
-								case '-':
-										zoom(pstate,1.2);
-										break;
-								case '.':
-										resetzoom(pstate);
-										break;
-								case '?':
-										refresh(); // to prevent buffer errors *** NOTE: DO NOT REMOVE ***
-										helpwin = newwin(help_message_nlines+2,maxlen+2,(pstate->height-help_message_nlines)/2+2,(pstate->width-maxlen)/2+2);
-										// helpwin = createwindow();
-
-
-										box(helpwin,0,0);
-										mvwprintw(helpwin,0,(pstate->width-strlen(help_message_header))/2,"%s", help_message_header);
-										for(int i = 0; i < help_message_nlines; i++){ 
-												if(keybinds[i].help_msg != NULL) // this means it's not meant to be displayed
-														mvwprintw(helpwin,i+1,3,keybinds[i].help_msg, keybinds[i].key);
+						if(!pstate->dragging){
+								for(int i = 0; i < bindings_n; i++){
+										if(ch == keybinds[i].key &&
+											pstate->dragging == keybinds[i].while_dragging &&
+											(!keybinds[i].when || keybinds[i].when(*pstate))){
+												keybinds[i].action(pstate);
 										}
-										wrefresh(helpwin);
-
-										getch();
-										
-										delwin(helpwin);
-										break;
-								case 'q': /* FALLTHROUGH */
-										running = false;
-								case 'c':
-										clear();
-										break;
-								default:
-										break;
-
+								}
 						}
 				}
 		}
@@ -326,9 +406,12 @@ finish(struct sstate* pstate)
 
 		printf("\033[?1003l\n");
 
-		if(pstate->log != stderr && pstate->log != stdout && pstate->log != NULL){
-				fclose(pstate->log);
+		if(using_configfile) { 
+				keybindsreader_free(&kbreader);
 		}
+		/*if(pstate->log != stderr && pstate->log != stdout && pstate->log != NULL){
+				fclose(pstate->log);
+		}*/
 
 		endwin();
 		return 0;
