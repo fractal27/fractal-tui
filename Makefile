@@ -2,7 +2,7 @@
 LOGFILE_NAME="fractal.log"
 LIBS:=`pkgconf --libs ncurses` -lm
 SRCS:=main.c fractal.c keybindingsreader/keybindingsreader.c
-OBJS:=main.o fractal.o keybindingsreader/keybindingsreader.o
+OBJS:=main.o fractal.o keybindingsreader.o
 EXEC:=fractal-tui
 CFLAGS:= -Wno-format-extra-args -DLOGFILE_NAME="$(LOGFILE_NAME)" -O2
 all: $(EXEC)

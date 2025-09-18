@@ -72,10 +72,11 @@ keybindsreader_parse(struct KeybindingsReader* conf, const char* values_accepted
 						conf->dest[conf->ndest].helpmsg = strdup(helpmsg);
 						
 						for(i = 0; i < sizeof(whens_accepted)/sizeof(const char*);i++){
-								if(!strcmp(val,whens_assoc[i])){
+								if(whens_assoc[i] && !strcmp(val,whens_assoc[i])){
 										conf->dest[conf->ndest].when = whens_assoc[i];
 										break;
-								}
+								} else if(!whens_assoc[i])
+										conf->dest[conf->ndest].when = whens_assoc[i];
 						}
 
 						for(i = 0; i < sizeof(values_accepted)/sizeof(const char*);i++){
